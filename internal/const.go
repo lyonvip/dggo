@@ -7,6 +7,7 @@ const (
 	SshGetOSNameCmd      = "cat /etc/os-release  | grep '^NAME=' | sed 's/.*\"\\(.*\\)\"/\\1/'"
 	SshGetOSVersionIDCmd = "cat /etc/os-release  | grep '^VERSION_ID=' | sed 's/.*\"\\(.*\\)\"/\\1/'"
 	SshCheckAptUpdate    = "grep 1 /etc/apt/apt.conf.d/20auto-upgrades /etc/apt/apt.conf.d/20auto-upgrades | wc -l"
+	SshSetKubectlCmd = "; mkdir -p $HOME/.kube; cp -i /etc/kubernetes/admin.conf $HOME/.kube/config"
 	MasterNodeTag        = "master"
 	WorkerNodeTag        = "worker"
 )

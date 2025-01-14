@@ -10,12 +10,14 @@ import (
 	"time"
 )
 
+/* 抽象步骤 */
 type NodeStep interface {
 	Name() string
 	Addr() string
 	Setup() error
 }
 
+/* 具体步骤 */
 // InitNodeStep 节点初始化
 type InitNodeStep struct {
 	name     string
@@ -147,6 +149,40 @@ func (i *InstallAddonsStep) Addr() string {
 	return i.ip
 }
 
+type JoinHeaderStep struct {
+	name    string
+	ip      string
+	timeout time.Duration
+	joinCmd string
+}
+
+func NewJoinHeaderStep(ip string, timeout time.Duration, joinCmd string) NodeStep {
+	stepName := "加入k8s集群"
+	return &JoinHeaderStep{stepName, ip, timeout, joinCmd}
+}
+
+func (j *JoinHeaderStep) Setup() error {
+	client, _ := KubeMap.Load(j.ip)
+	sshClient := client.(*goph.Client)
+	timeCtx, cancel := context.WithTimeout(context.TODO(), j.timeout)
+	defer cancel()
+
+	if _, err := sshClient.RunContext(timeCtx, j.joinCmd); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (j *JoinHeaderStep) Name() string {
+	return j.name
+}
+
+func (j *JoinHeaderStep) Addr() string {
+	return j.ip
+}
+
+/* 执行安装对象 */
 type NodeInstaller struct {
 	Ticker *time.Ticker
 	Signal bool
@@ -164,7 +200,7 @@ func NewNodeInstaller(steps ...NodeStep) *NodeInstaller {
 	}
 }
 
-func (n *NodeInstaller) Run(ctx context.Context) error {
+func (n *NodeInstaller) Run() error {
 	defer n.Ticker.Stop()
 	for _, item := range n.Steps {
 		fooStep := item
@@ -189,5 +225,47 @@ func (n *NodeInstaller) Run(ctx context.Context) error {
 		klog.Infof("[%s] %s执行完毕<<<", stepName, addr)
 	}
 
+	return nil
+}
+
+type SshCmdCaller struct {
+	sshClient *goph.Client
+}
+
+func NewSshCmdCaller(ip string) (*SshCmdCaller, error) {
+	client, ok := KubeMap.Load(ip)
+	if !ok {
+		return nil, fmt.Errorf("无法获取%s的ssh连接", ip)
+	}
+	sshClient := client.(*goph.Client)
+	return &SshCmdCaller{sshClient}, nil
+}
+
+func (g *SshCmdCaller) GenJoinCmd(role string) (string, error) {
+	var execCmd string
+	shellScript := filepath.Join(RemoteParseDir, FilenameMap["script"])
+	timeCtx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
+	defer cancel()
+	switch role {
+	case "master":
+		execCmd = fmt.Sprintf("bash %s gen_master_cmd", shellScript)
+	case "worker":
+		execCmd = fmt.Sprintf("bash %s gen_worker_cmd", shellScript)
+	}
+	res, err := g.sshClient.RunContext(timeCtx, execCmd)
+	if err != nil {
+		return "", fmt.Errorf("生成角色为%s的加入集群命令异常", role)
+	}
+	return string(res), nil
+}
+
+func (g *SshCmdCaller) UnTaintNode() error {
+	shellScript := filepath.Join(RemoteParseDir, FilenameMap["script"])
+	timeCtx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
+	defer cancel()
+	execCmd := fmt.Sprintf("bash %s untaint_node", shellScript)
+	if _, err := g.sshClient.RunContext(timeCtx, execCmd); err != nil {
+		return xerror.Wrap(err, "删除master不可调度污点出现异常")
+	}
 	return nil
 }

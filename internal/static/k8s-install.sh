@@ -512,6 +512,31 @@ EOF
 
 }
 
+gen_master_join_cmd(){
+  join_cmd=$(kubeadm token create --print-join-command)
+  cert_key=$(kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -n1)
+  res_cmd="${join_cmd} --discovery-token-ca-cert-hash ${cert_key} --control-plane"
+  echo "${res_cmd}"
+}
+
+gen_worker_join_cmd(){
+  join_cmd=$(kubeadm token create --print-join-command)
+  echo "${join_cmd}"
+}
+
+untaint_master_nodes(){
+  node_array=($(kubectl get no | grep 'control-plane' | awk '{print $1}'))
+  if [ "${#node_array[@]}" -lt "1" ]; then
+    exit 1
+  fi
+
+  for node in "${node_array[@]}"; do
+    if ! kubectl taint no ${node} node-role.kubernetes.io/master:NoSchedule- &>/dev/null; then
+      exit 1
+    fi
+  done
+}
+
 case $1 in
     "apt")
         init_apt_source
@@ -533,5 +558,14 @@ case $1 in
         ;;
     "addons")
         install_addons
+        ;;
+    "gen_master_cmd")
+        gen_master_join_cmd
+        ;;
+    "gen_worker_cmd")
+        gen_worker_join_cmd
+        ;;
+    "untaint_node")
+        untaint_master_nodes
         ;;
 esac

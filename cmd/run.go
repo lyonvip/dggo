@@ -4,10 +4,10 @@ Copyright © 2024 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
-	"context"
 	"dggo/internal"
+	"fmt"
 	"github.com/spf13/cobra"
-	"golang.org/x/sync/errgroup"
+	"github.com/zeromicro/go-zero/core/mr"
 	"k8s.io/klog/v2"
 	"time"
 )
@@ -59,59 +59,89 @@ func k8sPreInstall(cmd *cobra.Command, args []string) error {
 }
 
 func k8sInstall(cmd *cobra.Command, args []string) error {
-	// header节点部署
-	localTimeout := 5 * time.Minute
-	headerNode := internal.NewInitNodeStep(true, masterList[0], localTimeout)
-	headerKubeadm := internal.NewInitKubeadmStep(masterList[0], localTimeout)
-	headerAddons := internal.NewInstallAddonsStep(masterList[0], localTimeout)
-	headerInstaller := internal.NewNodeInstaller(headerNode, headerKubeadm, headerAddons)
-	if err := headerInstaller.Run(context.TODO()); err != nil {
+	globalTimeout := 5 * time.Minute
+	cmdCaller, err := internal.NewSshCmdCaller(masterList[0])
+	if err != nil {
 		return err
 	}
 
-	// Todo: 生成join命令
-
-	// 非header节点初始化
-	var needInitNodeIP = make([]string, 0)
-	if len(masterList) > 1 {
-		needInitNodeIP = append(needInitNodeIP, masterList[1:]...)
+	// header节点部署
+	klog.Info("开始部署header节点...")
+	headerInstaller := internal.NewNodeInstaller(
+		internal.NewInitNodeStep(true, masterList[0], globalTimeout),
+		internal.NewInitKubeadmStep(masterList[0], globalTimeout),
+		internal.NewInstallAddonsStep(masterList[0], globalTimeout),
+	)
+	if err = headerInstaller.Run(); err != nil {
+		return err
 	}
-	if len(workerList) > 0 {
-		needInitNodeIP = append(needInitNodeIP, workerList...)
+	klog.Info("header节点部署完成...")
+	if len(masterList) == 1 && len(workerList) == 0 {
+		if err = cmdCaller.UnTaintNode(); err != nil {
+			return err
+		}
+		klog.Info("单节点k8s集群部署完成...")
+		return nil
 	}
 
-	g, ctx := errgroup.WithContext(context.TODO())
+	// 生成join集群命令
+	klog.Info("开始生成加入k8s集群命令...")
+	var masterJoinCmd, workerJoinCmd string
+	masterJoinCmd, err = cmdCaller.GenJoinCmd("master")
+	if err != nil {
+		return err
+	}
+	klog.Info("生成master节点加入集群命令成功")
+	fmt.Println("----------join master command----------")
+	fmt.Println()
+	fmt.Println(masterJoinCmd)
+	fmt.Println()
+	fmt.Println("---------------------------------------")
+
+	workerJoinCmd, err = cmdCaller.GenJoinCmd("worker")
+	if err != nil {
+		return err
+	}
+	klog.Info("生成worker节点加入集群命令成功")
+	fmt.Println("----------join worker command----------")
+	fmt.Println()
+	fmt.Println(workerJoinCmd)
+	fmt.Println()
+	fmt.Println("---------------------------------------")
+
+	// 非header节点部署
+	klog.Info("开始执行其他节点加入集群操作...")
+	var runFuncList = make([]func() error, 0)
 
 	if len(masterList) > 1 {
 		for _, ip := range masterList[1:] {
-			g.Go(func() error {
-				nodeInstaller := internal.NewNodeInstaller(internal.NewInitNodeStep(false, ip, localTimeout))
-				// 节点初始化
-				if err := nodeInstaller.Run(ctx); err != nil {
-					return err
-				}
-				return nil
-			})
+			nodeInstaller := internal.NewNodeInstaller(
+				internal.NewInitNodeStep(false, ip, globalTimeout),
+				internal.NewJoinHeaderStep(ip, globalTimeout, masterJoinCmd+internal.SshSetKubectlCmd),
+			)
+			runFuncList = append(runFuncList, nodeInstaller.Run)
 		}
 	}
 
 	if len(workerList) > 0 {
 		for _, ip := range workerList {
-			g.Go(func() error {
-				nodeInstaller := internal.NewNodeInstaller(internal.NewInitNodeStep(false, ip, localTimeout))
-				// 节点初始化
-				if err := nodeInstaller.Run(ctx); err != nil {
-					return err
-				}
-				return nil
-			})
+			nodeInstaller := internal.NewNodeInstaller(
+				internal.NewInitNodeStep(false, ip, globalTimeout),
+				internal.NewJoinHeaderStep(ip, globalTimeout, workerJoinCmd+internal.SshSetKubectlCmd),
+			)
+			runFuncList = append(runFuncList, nodeInstaller.Run)
 		}
 	}
 
-	if err := g.Wait(); err != nil {
+	if err = mr.Finish(runFuncList...); err != nil {
 		return err
 	}
 
+	if err = cmdCaller.UnTaintNode(); err != nil {
+		return err
+	}
+
+	klog.Info("k8s集群部署完成...")
 	return nil
 }
 
