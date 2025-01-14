@@ -1,0 +1,104 @@
+@startuml
+namespace internal {
+    class InitKubeadmStep << (S,Aquamarine) >> {
+        - name string
+        - ip string
+        - timeout time.Duration
+
+        + Setup() error
+        + Name() string
+        + Addr() string
+
+    }
+    class InitNodeStep << (S,Aquamarine) >> {
+        - name string
+        - isHeader bool
+        - ip string
+        - timeout time.Duration
+
+        + Setup() error
+        + Name() string
+        + Addr() string
+
+    }
+    class InstallAddonsStep << (S,Aquamarine) >> {
+        - name string
+        - ip string
+        - timeout time.Duration
+
+        + Setup() error
+        + Name() string
+        + Addr() string
+
+    }
+    class JoinHeaderStep << (S,Aquamarine) >> {
+        - name string
+        - ip string
+        - timeout time.Duration
+        - joinCmd string
+
+        + Setup() error
+        + Name() string
+        + Addr() string
+
+    }
+    class NodeInstaller << (S,Aquamarine) >> {
+        + Ticker *time.Ticker
+        + Signal bool
+        + ErrCh <font color=blue>chan</font> error
+        + Steps []NodeStep
+
+        + Run() error
+
+    }
+    interface NodeStep  {
+        + Name() string
+        + Addr() string
+        + Setup() error
+
+    }
+    class SshCmdCaller << (S,Aquamarine) >> {
+        - sshClient *goph.Client
+
+        + GenJoinCmd(role string) (string, error)
+        + UnTaintNode() error
+
+    }
+    class Validator << (S,Aquamarine) >> {
+        + KubeVIP string
+        + SshPasswd string
+        + KubeVersion string
+        + NodePrefix string
+        + MasterList []string
+        + WorkerList []string
+
+        + GenVarsPool() 
+        + ValidateIP() error
+        + ValidateOS() error
+        + ValidateKubeVersion() error
+
+    }
+    class VarsPool << (S,Aquamarine) >> {
+        + HeaderIP string
+        + HeaderHostname string
+        + KubeVIP string
+        + KubeVersion string
+        + KubeMainVersion string
+        + NerdctlVersion string
+        + IpHostnameMap <font color=blue>map</font>[string]string
+
+    }
+    class fileParser << (S,Aquamarine) >> {
+        - embedFS embed.FS
+
+        + ParseFile(ip string, filename string) error
+
+    }
+}
+
+"internal.NodeStep" <|-- "internal.InitKubeadmStep"
+"internal.NodeStep" <|-- "internal.InitNodeStep"
+"internal.NodeStep" <|-- "internal.InstallAddonsStep"
+"internal.NodeStep" <|-- "internal.JoinHeaderStep"
+
+@enduml
