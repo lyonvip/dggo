@@ -31,6 +31,7 @@ func PingTest(host string) error {
 	if err != nil {
 		return err
 	}
+	pinger.SetPrivileged(true)
 	pinger.Count = 2
 	pinger.Timeout = 3 * time.Second
 	if err = pinger.Run(); err != nil {

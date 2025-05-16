@@ -10,25 +10,24 @@ import (
 	"time"
 )
 
-/* 抽象步骤 */
 type NodeStep interface {
 	Name() string
 	Addr() string
 	Setup() error
 }
 
-/* 具体步骤 */
 // InitNodeStep 节点初始化
 type InitNodeStep struct {
 	name     string
 	isHeader bool
+	hasVip   bool
 	ip       string
 	timeout  time.Duration
 }
 
-func NewInitNodeStep(isHeader bool, ip string, timeout time.Duration) NodeStep {
+func NewInitNodeStep(isHeader bool, hasVip bool, ip string, timeout time.Duration) NodeStep {
 	stepName := "节点初始化"
-	return &InitNodeStep{stepName, isHeader, ip, timeout}
+	return &InitNodeStep{stepName, isHeader, hasVip, ip, timeout}
 }
 
 func (i *InitNodeStep) Setup() error {
@@ -60,8 +59,12 @@ func (i *InitNodeStep) Setup() error {
 		fmt.Sprintf("bash %s init", shellScript),
 		fmt.Sprintf("bash %s containerd", shellScript),
 		fmt.Sprintf("bash %s kube", shellScript),
-		fmt.Sprintf("bash %s kubevip", shellScript),
 	}
+
+	if i.hasVip {
+		initCmdList = append(initCmdList, fmt.Sprintf("bash %s kubevip", shellScript))
+	}
+
 	for _, cmd := range initCmdList {
 		if _, err := sshClient.RunContext(timeCtx, cmd); err != nil {
 			return err

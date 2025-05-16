@@ -67,8 +67,12 @@ func k8sInstall(cmd *cobra.Command, args []string) error {
 
 	// header节点部署
 	klog.Info("开始部署header节点...")
+	var hasVip bool
+	if len(vip) != 0 {
+		hasVip = true
+	}
 	headerInstaller := internal.NewNodeInstaller(
-		internal.NewInitNodeStep(true, masterList[0], globalTimeout),
+		internal.NewInitNodeStep(true, hasVip, masterList[0], globalTimeout),
 		internal.NewInitKubeadmStep(masterList[0], globalTimeout),
 		internal.NewInstallAddonsStep(masterList[0], globalTimeout),
 	)
@@ -87,27 +91,32 @@ func k8sInstall(cmd *cobra.Command, args []string) error {
 	// 生成join集群命令
 	klog.Info("开始生成加入k8s集群命令...")
 	var masterJoinCmd, workerJoinCmd string
-	masterJoinCmd, err = cmdCaller.GenJoinCmd("master")
-	if err != nil {
-		return err
-	}
-	klog.Info("生成master节点加入集群命令成功")
-	fmt.Println("----------join master command----------")
-	fmt.Println()
-	fmt.Println(masterJoinCmd)
-	fmt.Println()
-	fmt.Println("---------------------------------------")
 
-	workerJoinCmd, err = cmdCaller.GenJoinCmd("worker")
-	if err != nil {
-		return err
+	if len(masterList) > 1 {
+		masterJoinCmd, err = cmdCaller.GenJoinCmd("master")
+		if err != nil {
+			return err
+		}
+		klog.Info("生成master节点加入集群命令成功")
+		fmt.Println("----------join master command----------")
+		fmt.Println()
+		fmt.Println(masterJoinCmd)
+		fmt.Println()
+		fmt.Println("---------------------------------------")
 	}
-	klog.Info("生成worker节点加入集群命令成功")
-	fmt.Println("----------join worker command----------")
-	fmt.Println()
-	fmt.Println(workerJoinCmd)
-	fmt.Println()
-	fmt.Println("---------------------------------------")
+
+	if len(workerList) > 0 {
+		workerJoinCmd, err = cmdCaller.GenJoinCmd("worker")
+		if err != nil {
+			return err
+		}
+		klog.Info("生成worker节点加入集群命令成功")
+		fmt.Println("----------join worker command----------")
+		fmt.Println()
+		fmt.Println(workerJoinCmd)
+		fmt.Println()
+		fmt.Println("---------------------------------------")
+	}
 
 	// 非header节点部署
 	klog.Info("开始执行其他节点加入集群操作...")
@@ -116,7 +125,7 @@ func k8sInstall(cmd *cobra.Command, args []string) error {
 	if len(masterList) > 1 {
 		for _, ip := range masterList[1:] {
 			nodeInstaller := internal.NewNodeInstaller(
-				internal.NewInitNodeStep(false, ip, globalTimeout),
+				internal.NewInitNodeStep(false, hasVip, ip, globalTimeout),
 				internal.NewJoinHeaderStep(ip, globalTimeout, masterJoinCmd+internal.SshSetKubectlCmd),
 			)
 			runFuncList = append(runFuncList, nodeInstaller.Run)
@@ -126,7 +135,7 @@ func k8sInstall(cmd *cobra.Command, args []string) error {
 	if len(workerList) > 0 {
 		for _, ip := range workerList {
 			nodeInstaller := internal.NewNodeInstaller(
-				internal.NewInitNodeStep(false, ip, globalTimeout),
+				internal.NewInitNodeStep(false, hasVip, ip, globalTimeout),
 				internal.NewJoinHeaderStep(ip, globalTimeout, workerJoinCmd+internal.SshSetKubectlCmd),
 			)
 			runFuncList = append(runFuncList, nodeInstaller.Run)

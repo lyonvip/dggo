@@ -60,8 +60,10 @@ func (v *Validator) GenVarsPool() {
 
 func (v *Validator) ValidateIP() error {
 	// vip检查
-	if err := common.PingTest(v.KubeVIP); err == nil {
-		return fmt.Errorf("vip%s已被占用", v.KubeVIP)
+	if len(v.KubeVIP) != 0 {
+		if err := common.PingTest(v.KubeVIP); err == nil {
+			return fmt.Errorf("vip%s已被占用", v.KubeVIP)
+		}
 	}
 
 	// master节点检查
@@ -192,6 +194,7 @@ func (v *Validator) ValidateKubeVersion() error {
 		return errors.New("k8s版本号输入错误")
 	}
 	for _, part := range parts {
+		// 验证是否是整数
 		if !fn(part) {
 			return errors.New("k8s版本号输入错误")
 		}
