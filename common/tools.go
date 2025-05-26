@@ -2,10 +2,9 @@ package common
 
 import (
 	"github.com/duke-git/lancet/v2/xerror"
-	"github.com/go-ping/ping"
 	"github.com/melbahja/goph"
 	"golang.org/x/crypto/ssh"
-	"time"
+	"os/exec"
 )
 
 // NewSSHClient ssh客户端
@@ -27,15 +26,15 @@ func NewSSHClient(host string, port uint, username, password string) (*goph.Clie
 
 // PingTest ping包测试
 func PingTest(host string) error {
-	pinger, err := ping.NewPinger(host)
-	if err != nil {
-		return err
-	}
-	pinger.SetPrivileged(true)
-	pinger.Count = 2
-	pinger.Timeout = 3 * time.Second
-	if err = pinger.Run(); err != nil {
+	execCmd := "ping -c 1 " + host
+	if _, err := Shell(execCmd); err != nil {
 		return err
 	}
 	return nil
+}
+
+func Shell(cmd string) (string, error) {
+	c := exec.Command("bash", "-c", cmd)
+	output, err := c.CombinedOutput()
+	return string(output), err
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/duke-git/lancet/v2/xerror"
+	"github.com/jinzhu/copier"
 	"github.com/melbahja/goph"
 	"path/filepath"
 	"sync"
@@ -41,9 +42,20 @@ func (f *fileParser) ParseFile(ip, filename string) error {
 	if varsPool == nil {
 		return errors.New("全局渲染变量池未初始化")
 	}
+
+	var localPool VarsPool
+	if err = copier.Copy(&localPool, varsPool); err != nil {
+		return err
+	}
+	if err = localPool.GenLocalHostname(ip); err != nil {
+		return err
+	}
+
+	localPool.LocalIp = ip
+
 	tpl := template.Must(template.New("").Parse(string(sFile)))
 	var buff bytes.Buffer
-	if err = tpl.Execute(&buff, varsPool); err != nil {
+	if err = tpl.Execute(&buff, localPool); err != nil {
 		return xerror.Wrap(err, fmt.Sprintf("渲染%s异常", filename))
 	}
 

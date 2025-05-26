@@ -5,11 +5,15 @@ nodeRegistration:
   imagePullPolicy: IfNotPresent
 ---
 apiVersion: kubeadm.k8s.io/v1beta3
+kind: ClusterConfiguration
 certificatesDir: /etc/kubernetes/pki
 clusterName: kubernetes
 imageRepository: registry.aliyuncs.com/google_containers
+{{- if.KubeVIP }}
 controlPlaneEndpoint: lb.k8s.local:6443
-kind: ClusterConfiguration
+{{- else }}
+controlPlaneEndpoint: {{ .LocalIp }}:6443
+{{- end }}
 kubernetesVersion: {{ .KubeVersion }}
 networking:
   dnsDomain: cluster.local
@@ -17,22 +21,24 @@ networking:
   podSubnet: 10.244.0.0/16
 apiServer:
   certSANs:
-    - lb.k8s.local
     - 127.0.0.1
+    {{- if .KubeVIP }}
+    - lb.k8s.local
     - {{ .KubeVIP }}
-  {{- range $ip, $hostname := .IpHostnameMap -}}
-  - {{ $ip }}
-  - {{ $hostname }}
-  {{- end -}}
+    {{- end -}}
+    {{- range $ip, $hostname := .IpHostnameMap }}
+    - {{ $ip }}
+    - {{ $hostname }}
+  {{- end }}
 ---
-kind: KubeletConfiguration
 apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
 cgroupDriver: systemd
 clusterDNS:
   - 10.96.0.10
 clusterDomain: cluster.local
 ---
 apiVersion: kubeproxy.config.k8s.io/v1alpha1
-bindAddress: 0.0.0.0
 kind: KubeProxyConfiguration
+bindAddress: 0.0.0.0
 mode: "ipvs"

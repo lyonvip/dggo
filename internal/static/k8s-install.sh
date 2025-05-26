@@ -19,11 +19,7 @@ EOF
 deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://mirrors.tuna.tsinghua.edu.cn/kubernetes/core:/stable:/v{{ .KubeMainVersion }}/deb/ /
 EOF
 
-  if ! apt update; then
-    exit 1
-  fi
-
-  apt install -y apt-transport-https
+  /usr/bin/apt update && /usr/bin/apt install -y apt-transport-https
 }
 
 install_containerd(){
@@ -360,7 +356,7 @@ install_kubevip(){
   mkdir -p /etc/kubernetes/manifests
   rm -rf /etc/kubernetes/manifests/kube-vip.yaml
   NicStr=$(echo "{{ .KubeVIP }}" | sed 's/\([0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.\)[0-9]\{1,3\}/\1/')
-  NIC=$(ip addr | grep {{ .NicStr }} | awk '{print $NF}')
+  NIC=$(ip addr | grep "$NicStr" | awk '{print $NF}')
   cat <<EOF > /etc/kubernetes/manifests/kube-vip.yaml
 apiVersion: v1
 kind: Pod
@@ -440,7 +436,7 @@ EOF
 
 init_kubeadm(){
   kubeadm init --upload-certs --config /usr/local/src/kubeadm.yaml > /usr/local/src/kubeadm.log
-  if [ "$?" -eq 0 ]; then
+  if [ "$?" -ne 0 ]; then
     exit 1
   else
     mkdir -p $HOME/.kube
@@ -451,7 +447,6 @@ init_kubeadm(){
 }
 
 install_addons(){
-  rm -rf /usr/local/src/{calico.yaml,components.yaml}
   kubectl apply -f /usr/local/src/calico.yaml
   [[ "$?" != "0" ]] && exit 1
   kubectl apply -f /usr/local/src/components.yaml
@@ -470,10 +465,12 @@ init_node(){
   hostnamectl set-hostname {{ .LocalHostname }}
   # 配置本地域名解析
   cat >> /etc/hosts << EOF
+{{ if .KubeVIP }}
 {{ .KubeVIP }} lb.k8s.local
-{{- range $ip, $hostname := .IpHostnameMap -}}
+{{ end }}
+{{ range $ip, $hostname := .IpHostnameMap }}
 {{ $ip }} {{ $hostname }}
-{{- end -}}
+{{- end }}
 EOF
 
   # 关闭swap
@@ -515,7 +512,7 @@ EOF
 gen_master_join_cmd(){
   join_cmd=$(kubeadm token create --print-join-command)
   cert_key=$(kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -n1)
-  res_cmd="${join_cmd} --discovery-token-ca-cert-hash ${cert_key} --control-plane"
+  res_cmd="${join_cmd} --certificate-key ${cert_key} --control-plane"
   echo "${res_cmd}"
 }
 
@@ -531,7 +528,7 @@ untaint_master_nodes(){
   fi
 
   for node in "${node_array[@]}"; do
-    if ! kubectl taint no ${node} node-role.kubernetes.io/master:NoSchedule- &>/dev/null; then
+    if ! kubectl taint no ${node} node-role.kubernetes.io/control-plane:NoSchedule- &>/dev/null; then
       exit 1
     fi
   done
