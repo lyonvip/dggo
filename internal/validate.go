@@ -49,11 +49,11 @@ func (v *Validator) GenVarsPool() {
 
 	// 获取地址与主机名mapping
 	for index, ip := range v.MasterList {
-		kubeVarsPool.IpHostnameMap[ip] = v.NodePrefix + MasterNodeTag + strconv.Itoa(index)
+		kubeVarsPool.IpHostnameMap[ip] = v.NodePrefix + MasterNodeTag + strconv.Itoa(index+1)
 	}
 	if len(v.WorkerList) != 0 {
 		for index, ip := range v.WorkerList {
-			kubeVarsPool.IpHostnameMap[ip] = v.NodePrefix + WorkerNodeTag + strconv.Itoa(index)
+			kubeVarsPool.IpHostnameMap[ip] = v.NodePrefix + WorkerNodeTag + strconv.Itoa(index+1)
 		}
 	}
 }

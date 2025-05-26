@@ -15,9 +15,6 @@ var rootCmd = &cobra.Command{
 	Use:   "dggo",
 	Short: "a binary installation tool",
 	Long:  ``,
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

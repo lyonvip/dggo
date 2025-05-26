@@ -164,6 +164,6 @@ func init() {
 	runCmd.Flags().StringVar(&nodePrefix, "prefix", "k8s-", "node hostname prefix")
 	runCmd.Flags().MarkHidden("prefix")
 	runCmd.MarkFlagRequired("masters")
-	runCmd.MarkFlagRequired("vip")
+	//runCmd.MarkFlagRequired("vip")
 	runCmd.MarkFlagRequired("ssh-passwd")
 }
