@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"dggo/internal"
+	"fmt"
 	"github.com/spf13/cobra"
 	"github.com/zeromicro/go-zero/core/mr"
 	"k8s.io/klog/v2"
@@ -49,7 +50,9 @@ func k8sPreInstall(cmd *cobra.Command, args []string) error {
 
 	// 生成kubeVarsPool渲染池
 	klog.Info("Generate kubeVarsPool")
-	validator.GenVarsPool()
+	if err = validator.GenVarsPool(); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -75,6 +78,7 @@ func k8sInstall(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	klog.Info("Header node startup completed")
+
 	if len(masterList) == 1 && len(workerList) == 0 {
 		if err = headerCaller.UnTaintNode(); err != nil {
 			return err
@@ -82,6 +86,9 @@ func k8sInstall(cmd *cobra.Command, args []string) error {
 		klog.Info("single-node-k8s deployment completed")
 		return nil
 	}
+
+	// Todo: 如果kube版本大于等于1.29，获取/etc/kubernetes/super-admin.conf内容
+	headerCaller.GenKubeConfig()
 
 	// 生成join集群命令
 	var masterJoinCmd, workerJoinCmd string
@@ -91,6 +98,7 @@ func k8sInstall(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		fmt.Println("[master join command] ", masterJoinCmd)
 	}
 
 	if len(workerList) > 0 {
@@ -98,6 +106,7 @@ func k8sInstall(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		fmt.Println("[worker join command] ", workerJoinCmd)
 	}
 
 	// 非header节点部署
@@ -106,6 +115,11 @@ func k8sInstall(cmd *cobra.Command, args []string) error {
 
 	if len(masterList) > 1 {
 		for _, ip := range masterList[1:] {
+			if internal.GetVarsPool().KubeReleaseVersion >= 29 {
+				// Todo: 生成super-admin.conf文件
+
+			}
+
 			nodeInstaller := internal.NewNodeInstaller(
 				internal.NewInitNodeStep(false, hasVip, ip),
 				internal.NewJoinHeaderStep(ip, masterJoinCmd+internal.SshSetKubectlCmd),
@@ -116,6 +130,11 @@ func k8sInstall(cmd *cobra.Command, args []string) error {
 
 	if len(workerList) > 0 {
 		for _, ip := range workerList {
+			if internal.GetVarsPool().KubeReleaseVersion >= 29 {
+				// Todo: 生成super-admin.conf文件
+
+			}
+
 			nodeInstaller := internal.NewNodeInstaller(
 				internal.NewInitNodeStep(false, hasVip, ip),
 				internal.NewJoinHeaderStep(ip, workerJoinCmd+internal.SshSetKubectlCmd),

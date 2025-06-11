@@ -7,15 +7,16 @@ import (
 var kubeVarsPool = NewVarsPool()
 
 type VarsPool struct {
-	HeaderIP        string
-	HeaderHostname  string
-	KubeVIP         string
-	KubeVersion     string
-	KubeMainVersion string
-	NerdctlVersion  string
-	LocalIp         string
-	LocalHostname   string
-	IpHostnameMap   map[string]string
+	HeaderIP           string
+	HeaderHostname     string
+	KubeVIP            string
+	KubeVersion        string
+	KubeMainVersion    string
+	KubeReleaseVersion int
+	NerdctlVersion     string
+	LocalIp            string
+	LocalHostname      string
+	IpHostnameMap      map[string]string
 }
 
 func (v *VarsPool) GenLocalHostname(ip string) error {

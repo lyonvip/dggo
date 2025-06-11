@@ -36,7 +36,7 @@ func NewValidator(vip string, sshPasswd string, kubeVersion string, nodePrefix s
 	}
 }
 
-func (v *Validator) GenVarsPool() {
+func (v *Validator) GenVarsPool() error {
 	kubeVarsPool.HeaderIP = v.MasterList[0]
 	kubeVarsPool.HeaderHostname = v.NodePrefix + MasterNodeTag + "1"
 	kubeVarsPool.KubeVIP = v.KubeVIP
@@ -47,6 +47,12 @@ func (v *Validator) GenVarsPool() {
 	parts := strings.Split(v.KubeVersion, ".")
 	kubeVarsPool.KubeMainVersion = parts[0] + "." + parts[1]
 
+	intVersion, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return err
+	}
+	kubeVarsPool.KubeReleaseVersion = intVersion
+
 	// 获取地址与主机名mapping
 	for index, ip := range v.MasterList {
 		kubeVarsPool.IpHostnameMap[ip] = v.NodePrefix + MasterNodeTag + strconv.Itoa(index+1)
@@ -56,6 +62,8 @@ func (v *Validator) GenVarsPool() {
 			kubeVarsPool.IpHostnameMap[ip] = v.NodePrefix + WorkerNodeTag + strconv.Itoa(index+1)
 		}
 	}
+
+	return nil
 }
 
 func (v *Validator) ValidateIP() error {

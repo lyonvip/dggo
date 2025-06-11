@@ -4,7 +4,6 @@ Copyright © 2024 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
-	"k8s.io/klog/v2"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -22,7 +21,6 @@ var rootCmd = &cobra.Command{
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
-		klog.Error(err)
 		os.Exit(1)
 	}
 }

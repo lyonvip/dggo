@@ -208,6 +208,11 @@ func (g *SshCmdCaller) GenJoinCmd(role string) (string, error) {
 	return string(res), nil
 }
 
+func (g *SshCmdCaller) GenKubeConfig() error {
+	// Todo: 生成super-admin.conf逻辑
+	return nil
+}
+
 func (g *SshCmdCaller) UnTaintNode() error {
 	shellScript := filepath.Join(RemoteParseDir, FilenameMap["script"])
 	execCmd := fmt.Sprintf("bash %s untaint_node", shellScript)

@@ -12,30 +12,34 @@ init_apt_source(){
   Step="init_apt_source"
 
   # 配置系统apt源
-  echo_log "${Node}" "${Step}" "Config OS sources.list via https://mirrors.tuna.tsinghua.edu.cn/ubuntu/"
+  echo_log "${Node}" "${Step}" "Config OS sources.list via https://mirrors.aliyun.com/ubuntu/"
   rm -rf /etc/apt/sources.list /etc/apt/sources.list.d/kubernetes.list /etc/apt/keyrings/kubernetes-apt-keyring.gpg
   cat > /etc/apt/sources.list << EOF
-deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ jammy main restricted universe multiverse
-# deb-src https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ jammy main restricted universe multiverse
-deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ jammy-updates main restricted universe multiverse
-# deb-src https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ jammy-updates main restricted universe multiverse
-deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ jammy-backports main restricted universe multiverse
-# deb-src https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ jammy-backports main restricted universe multiverse
+deb https://mirrors.aliyun.com/ubuntu/ jammy main restricted universe multiverse
+deb-src https://mirrors.aliyun.com/ubuntu/ jammy main restricted universe multiverse
 
-deb http://security.ubuntu.com/ubuntu/ jammy-security main restricted universe multiverse
-# deb-src http://security.ubuntu.com/ubuntu/ jammy-security main restricted universe multiverse
+deb https://mirrors.aliyun.com/ubuntu/ jammy-security main restricted universe multiverse
+deb-src https://mirrors.aliyun.com/ubuntu/ jammy-security main restricted universe multiverse
+
+deb https://mirrors.aliyun.com/ubuntu/ jammy-updates main restricted universe multiverse
+deb-src https://mirrors.aliyun.com/ubuntu/ jammy-updates main restricted universe multiverse
+
+# deb https://mirrors.aliyun.com/ubuntu/ jammy-proposed main restricted universe multiverse
+# deb-src https://mirrors.aliyun.com/ubuntu/ jammy-proposed main restricted universe multiverse
+
+deb https://mirrors.aliyun.com/ubuntu/ jammy-backports main restricted universe multiverse
+deb-src https://mirrors.aliyun.com/ubuntu/ jammy-backports main restricted universe multiverse
 EOF
 
   # 配置k8s apt源
-  echo_log "${Node}" "${Step}" "Config k8s sources.list via https://pkgs.k8s.io/core:/stable:/"
-  curl -fsSL https://pkgs.k8s.io/core:/stable:/v{{ .KubeMainVersion }}/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-  cat > /etc/apt/sources.list.d/kubernetes.list << EOF
-deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://mirrors.tuna.tsinghua.edu.cn/kubernetes/core:/stable:/v{{ .KubeMainVersion }}/deb/ /
-EOF
+  echo_log "${Node}" "${Step}" "Config k8s sources.list via https://mirrors.aliyun.com/kubernetes-new/"
+  curl -fsSL https://mirrors.aliyun.com/kubernetes-new/core/stable/v{{ .KubeMainVersion }}/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+  echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://mirrors.aliyun.com/kubernetes-new/core/stable/v{{ .KubeMainVersion }}/deb/ /" |
+      tee /etc/apt/sources.list.d/kubernetes.list
 
   # 安装apt-transport-https
-  echo_log "${Node}" "${Step}" "Install apt-transport-https via apt"
-  /usr/bin/apt update && /usr/bin/apt install -y apt-transport-https
+  echo_log "${Node}" "${Step}" "Update apt sources"
+  apt update
 }
 
 install_containerd(){
@@ -68,7 +72,7 @@ EOF
   echo_log "${Node}" "${Step}" "Download containerd binary via nerdctl-full package"
 
   wget -O /usr/local/src/nerdctl-full-{{ .NerdctlVersion }}-linux-amd64.tar.gz \
-    https://files.m.daocloud.io/github.com/containerd/nerdctl/releases/download/v{{ .NerdctlVersion }}/nerdctl-full-{{ .NerdctlVersion }}-linux-amd64.tar.gz
+    https://files.m.daocloud.io/github.com/containerd/nerdctl/releases/download/v{{ .NerdctlVersion }}/nerdctl-full-{{ .NerdctlVersion }}-linux-amd64.tar.gz &>/dev/null
   tar Cxzvvf /usr/local /usr/local/src/nerdctl-full-{{ .NerdctlVersion }}-linux-amd64.tar.gz
 
 
@@ -458,7 +462,7 @@ spec:
       value: {{ .KubeVIP }}
     - name: prometheus_server
       value: :2112
-    image: registry.cn-beijing.aliyuncs.com/lyonkube/kube-vip:v0.8.0
+    image: registry.cn-beijing.aliyuncs.com/lyonkube/kube-vip:v0.8.10
     imagePullPolicy: IfNotPresent
     name: kube-vip
     resources: {}
@@ -477,7 +481,11 @@ spec:
   hostNetwork: true
   volumes:
   - hostPath:
+      {{- if lt .KubeReleaseVersion 29 }}
       path: /etc/kubernetes/admin.conf
+      {{- else }}
+      path: /etc/kubernetes/super-admin.conf
+      {{- end }}
     name: kubeconfig
 EOF
 }
@@ -518,7 +526,7 @@ install_addons(){
 
   # 等待calico就绪
   echo_log "${Node}" "${Step}" "Wait calico ready..."
-  for ((i=1; i<=60; i++)); do
+  for ((i=1; i<=100; i++)); do
     sleep 2
     num=$(kubectl -n kube-system get po | grep 'calico' | grep 'Running' | grep '1/1' | wc -l)
     [ "$num" -eq 2 ] && exit 0
@@ -554,8 +562,8 @@ EOF
   swapoff -a
 
   # 安装依赖包
-  echo_log "${Node}" "${Step}" "Install ipset/ipvsadm/chrony via apt"
-  apt install -y ipset ipvsadm chrony
+  echo_log "${Node}" "${Step}" "Install apt-transport-https/ipset/ipvsadm/chrony via apt"
+  apt install -y apt-transport-https ipset ipvsadm chrony
 
   # 配置时间同步
   echo_log "${Node}" "${Step}" "Config local timedate"
@@ -591,12 +599,12 @@ gen_master_join_cmd(){
   join_cmd=$(kubeadm token create --print-join-command)
   cert_key=$(kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -n1)
   res_cmd="${join_cmd} --certificate-key ${cert_key} --control-plane"
-  echo "${res_cmd}"
+  echo "${res_cmd}" | tr -d '\n'
 }
 
 gen_worker_join_cmd(){
   join_cmd=$(kubeadm token create --print-join-command)
-  echo "${join_cmd}"
+  echo "${join_cmd}" | tr -d '\n'
 }
 
 untaint_master_nodes(){
