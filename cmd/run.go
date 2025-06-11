@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"dggo/internal"
+	"fmt"
 	"github.com/spf13/cobra"
 	"github.com/zeromicro/go-zero/core/mr"
 	"k8s.io/klog/v2"
@@ -91,6 +92,7 @@ func k8sInstall(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		fmt.Println("[master join command] ", masterJoinCmd)
 	}
 
 	if len(workerList) > 0 {
@@ -98,6 +100,7 @@ func k8sInstall(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		fmt.Println("[worker join command] ", workerJoinCmd)
 	}
 
 	// 非header节点部署

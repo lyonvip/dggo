@@ -9,8 +9,8 @@ kind: ClusterConfiguration
 certificatesDir: /etc/kubernetes/pki
 clusterName: kubernetes
 imageRepository: registry.aliyuncs.com/google_containers
-{{- if.KubeVIP }}
-controlPlaneEndpoint: lb.k8s.local:6443
+{{- if .KubeVIP }}
+controlPlaneEndpoint: {{ .KubeVIP }}:6443
 {{- else }}
 controlPlaneEndpoint: {{ .LocalIp }}:6443
 {{- end }}
