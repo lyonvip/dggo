@@ -3,49 +3,45 @@ package internal
 import (
 	"context"
 	"fmt"
-	"github.com/duke-git/lancet/v2/xerror"
 	"github.com/melbahja/goph"
-	"k8s.io/klog/v2"
+	"io"
+	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
 type NodeStep interface {
-	Name() string
-	Addr() string
 	Setup() error
 }
 
 // InitNodeStep 节点初始化
 type InitNodeStep struct {
-	name     string
 	isHeader bool
 	hasVip   bool
 	ip       string
-	timeout  time.Duration
 }
 
-func NewInitNodeStep(isHeader bool, hasVip bool, ip string, timeout time.Duration) NodeStep {
-	stepName := "节点初始化"
-	return &InitNodeStep{stepName, isHeader, hasVip, ip, timeout}
+func NewInitNodeStep(isHeader bool, hasVip bool, ip string) NodeStep {
+	return &InitNodeStep{isHeader, hasVip, ip}
 }
 
 func (i *InitNodeStep) Setup() error {
-	client, _ := KubeMap.Load(i.ip)
-	sshClient := client.(*goph.Client)
-	timeCtx, cancel := context.WithTimeout(context.TODO(), i.timeout)
-	defer cancel()
+	cmdCaller, err := NewSshCmdCaller(i.ip)
+	if err != nil {
+		return err
+	}
 
 	myFilenameParser := GetFileParser()
 
 	// 渲染静态文件：如果不是header，仅需要渲染scripts，否则需要渲染所有static静态文件
-	if err := myFilenameParser.ParseFile(i.ip, FilenameMap["script"]); err != nil {
+	if err = myFilenameParser.ParseFile(i.ip, FilenameMap["script"]); err != nil {
 		return err
 	}
 	if i.isHeader {
 		for tag, filename := range FilenameMap {
 			if tag != "script" {
-				if err := myFilenameParser.ParseFile(i.ip, filename); err != nil {
+				if err = myFilenameParser.ParseFile(i.ip, filename); err != nil {
 					return err
 				}
 			}
@@ -55,18 +51,18 @@ func (i *InitNodeStep) Setup() error {
 	// 执行初始化
 	shellScript := filepath.Join(RemoteParseDir, FilenameMap["script"])
 	initCmdList := []string{
-		fmt.Sprintf("bash %s apt", shellScript),
-		fmt.Sprintf("bash %s init", shellScript),
-		fmt.Sprintf("bash %s containerd", shellScript),
-		fmt.Sprintf("bash %s kube", shellScript),
+		fmt.Sprintf("bash %s apt %s", shellScript, i.ip),
+		fmt.Sprintf("bash %s init %s", shellScript, i.ip),
+		fmt.Sprintf("bash %s containerd %s", shellScript, i.ip),
+		fmt.Sprintf("bash %s kube %s", shellScript, i.ip),
 	}
 
 	if i.hasVip {
-		initCmdList = append(initCmdList, fmt.Sprintf("bash %s kubevip", shellScript))
+		initCmdList = append(initCmdList, fmt.Sprintf("bash %s kubevip %s", shellScript, i.ip))
 	}
 
 	for _, cmd := range initCmdList {
-		if _, err := sshClient.RunContext(timeCtx, cmd); err != nil {
+		if err = cmdCaller.RemoteShell(cmd); err != nil {
 			return err
 		}
 	}
@@ -74,129 +70,85 @@ func (i *InitNodeStep) Setup() error {
 	return nil
 }
 
-func (i *InitNodeStep) Name() string {
-	return i.name
-}
-
-func (i *InitNodeStep) Addr() string {
-	return i.ip
-}
-
 // InitKubeadmStep kubeadm初始化
 type InitKubeadmStep struct {
-	name    string
-	ip      string
-	timeout time.Duration
+	ip string
 }
 
-func NewInitKubeadmStep(ip string, timeout time.Duration) NodeStep {
-	stepName := "kubeadm初始化"
-	return &InitKubeadmStep{stepName, ip, timeout}
+func NewInitKubeadmStep(ip string) NodeStep {
+	return &InitKubeadmStep{ip}
 }
 
 func (i *InitKubeadmStep) Setup() error {
-	client, _ := KubeMap.Load(i.ip)
-	sshClient := client.(*goph.Client)
-	timeCtx, cancel := context.WithTimeout(context.TODO(), i.timeout)
-	defer cancel()
+	cmdCaller, err := NewSshCmdCaller(i.ip)
+	if err != nil {
+		return err
+	}
 
 	shellScript := filepath.Join(RemoteParseDir, FilenameMap["script"])
-	initCmd := fmt.Sprintf("bash %s kubeadm", shellScript)
-	if _, err := sshClient.RunContext(timeCtx, initCmd); err != nil {
+	initCmd := fmt.Sprintf("bash %s kubeadm %s", shellScript, i.ip)
+	if err = cmdCaller.RemoteShell(initCmd); err != nil {
 		return err
 	}
 
 	return nil
-}
-
-func (i *InitKubeadmStep) Name() string {
-	return i.name
-}
-
-func (i *InitKubeadmStep) Addr() string {
-	return i.ip
 }
 
 // InstallAddonsStep 插件安装
 type InstallAddonsStep struct {
-	name    string
-	ip      string
-	timeout time.Duration
+	ip string
 }
 
-func NewInstallAddonsStep(ip string, timeout time.Duration) NodeStep {
-	stepName := "插件安装"
-	return &InstallAddonsStep{stepName, ip, timeout}
+func NewInstallAddonsStep(ip string) NodeStep {
+	return &InstallAddonsStep{ip}
 }
 
 func (i *InstallAddonsStep) Setup() error {
-	client, _ := KubeMap.Load(i.ip)
-	sshClient := client.(*goph.Client)
-	timeCtx, cancel := context.WithTimeout(context.TODO(), i.timeout)
-	defer cancel()
+	cmdCaller, err := NewSshCmdCaller(i.ip)
+	if err != nil {
+		return err
+	}
 
 	shellScript := filepath.Join(RemoteParseDir, FilenameMap["script"])
-	installCmd := fmt.Sprintf("bash %s addons", shellScript)
-	if _, err := sshClient.RunContext(timeCtx, installCmd); err != nil {
+	installCmd := fmt.Sprintf("bash %s addons %s", shellScript, i.ip)
+	if err = cmdCaller.RemoteShell(installCmd); err != nil {
 		return err
 	}
 
 	return nil
-}
-
-func (i *InstallAddonsStep) Name() string {
-	return i.name
-}
-
-func (i *InstallAddonsStep) Addr() string {
-	return i.ip
 }
 
 type JoinHeaderStep struct {
-	name    string
 	ip      string
-	timeout time.Duration
 	joinCmd string
 }
 
-func NewJoinHeaderStep(ip string, timeout time.Duration, joinCmd string) NodeStep {
-	stepName := "加入k8s集群"
-	return &JoinHeaderStep{stepName, ip, timeout, joinCmd}
+func NewJoinHeaderStep(ip string, joinCmd string) NodeStep {
+	return &JoinHeaderStep{ip, joinCmd}
 }
 
 func (j *JoinHeaderStep) Setup() error {
-	client, _ := KubeMap.Load(j.ip)
-	sshClient := client.(*goph.Client)
-	timeCtx, cancel := context.WithTimeout(context.TODO(), j.timeout)
-	defer cancel()
+	cmdCaller, err := NewSshCmdCaller(j.ip)
+	if err != nil {
+		return err
+	}
 
-	if _, err := sshClient.RunContext(timeCtx, j.joinCmd); err != nil {
+	if err = cmdCaller.RemoteShell(j.joinCmd); err != nil {
 		return err
 	}
 
 	return nil
-}
-
-func (j *JoinHeaderStep) Name() string {
-	return j.name
-}
-
-func (j *JoinHeaderStep) Addr() string {
-	return j.ip
 }
 
 /* 执行安装对象 */
 type NodeInstaller struct {
-	Ticker *time.Ticker
 	Signal bool
 	ErrCh  chan error
 	Steps  []NodeStep
 }
 
 func NewNodeInstaller(steps ...NodeStep) *NodeInstaller {
-	ticker := time.NewTicker(3 * time.Second)
 	return &NodeInstaller{
-		Ticker: ticker,
 		Signal: false,
 		ErrCh:  make(chan error),
 		Steps:  steps,
@@ -204,28 +156,21 @@ func NewNodeInstaller(steps ...NodeStep) *NodeInstaller {
 }
 
 func (n *NodeInstaller) Run() error {
-	defer n.Ticker.Stop()
 	for _, item := range n.Steps {
 		fooStep := item
-		stepName := fooStep.Name()
-		addr := fooStep.Addr()
-		klog.Infof("[%s] 开始执行%s>>>", stepName, addr)
 		go func() {
 			n.ErrCh <- fooStep.Setup()
 		}()
 		n.Signal = false
 		for !n.Signal {
 			select {
-			case <-n.Ticker.C:
-				klog.Infof("[%s] 正在执行%s...", stepName, addr)
 			case err := <-n.ErrCh:
 				if err != nil {
-					return xerror.Wrap(err, fmt.Sprintf("[%s] 执行%s出现异常", stepName, addr))
+					return err
 				}
 				n.Signal = true
 			}
 		}
-		klog.Infof("[%s] %s执行完毕<<<", stepName, addr)
 	}
 
 	return nil
@@ -233,6 +178,7 @@ func (n *NodeInstaller) Run() error {
 
 type SshCmdCaller struct {
 	sshClient *goph.Client
+	wg        *sync.WaitGroup
 }
 
 func NewSshCmdCaller(ip string) (*SshCmdCaller, error) {
@@ -241,7 +187,7 @@ func NewSshCmdCaller(ip string) (*SshCmdCaller, error) {
 		return nil, fmt.Errorf("无法获取%s的ssh连接", ip)
 	}
 	sshClient := client.(*goph.Client)
-	return &SshCmdCaller{sshClient}, nil
+	return &SshCmdCaller{sshClient, new(sync.WaitGroup)}, nil
 }
 
 func (g *SshCmdCaller) GenJoinCmd(role string) (string, error) {
@@ -257,18 +203,56 @@ func (g *SshCmdCaller) GenJoinCmd(role string) (string, error) {
 	}
 	res, err := g.sshClient.RunContext(timeCtx, execCmd)
 	if err != nil {
-		return "", fmt.Errorf("生成角色为%s的加入集群命令异常", role)
+		return "", err
 	}
 	return string(res), nil
 }
 
 func (g *SshCmdCaller) UnTaintNode() error {
 	shellScript := filepath.Join(RemoteParseDir, FilenameMap["script"])
-	timeCtx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
-	defer cancel()
 	execCmd := fmt.Sprintf("bash %s untaint_node", shellScript)
-	if _, err := g.sshClient.RunContext(timeCtx, execCmd); err != nil {
-		return xerror.Wrap(err, "删除master不可调度污点出现异常")
+	if err := g.RemoteShell(execCmd); err != nil {
+		return err
 	}
+	return nil
+}
+
+func (g *SshCmdCaller) RemoteShell(cmd string) error {
+	session, err := g.sshClient.NewSession()
+	if err != nil {
+		return err
+	}
+	defer session.Close()
+
+	stdout, err := session.StdoutPipe()
+	if err != nil {
+		return err
+	}
+
+	stderr, err := session.StderrPipe()
+	if err != nil {
+		return err
+	}
+
+	if err = session.Start(cmd); err != nil {
+		return err
+	}
+
+	g.wg.Add(2)
+	go func() {
+		defer g.wg.Done()
+		io.Copy(os.Stdout, stdout)
+	}()
+	go func() {
+		defer g.wg.Done()
+		io.Copy(os.Stderr, stderr)
+	}()
+
+	g.wg.Wait()
+
+	if err = session.Wait(); err != nil {
+		return err
+	}
+
 	return nil
 }

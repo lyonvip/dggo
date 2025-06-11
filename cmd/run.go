@@ -5,11 +5,9 @@ package cmd
 
 import (
 	"dggo/internal"
-	"fmt"
 	"github.com/spf13/cobra"
 	"github.com/zeromicro/go-zero/core/mr"
 	"k8s.io/klog/v2"
-	"time"
 )
 
 var (
@@ -34,99 +32,83 @@ func k8sPreInstall(cmd *cobra.Command, args []string) error {
 	var err error
 	validator = internal.NewValidator(vip, sshPasswd, kubeVersion, nodePrefix, masterList, workerList)
 
-	klog.Info("开始检查主机地址...")
+	klog.Info("Validate all ip")
 	if err = validator.ValidateIP(); err != nil {
 		return err
 	}
-	klog.Info("主机地址无异常")
 
-	klog.Info("开始检查系统版本...")
+	klog.Info("Validate OS Version")
 	if err = validator.ValidateOS(); err != nil {
 		return err
 	}
-	klog.Info("系统版本无异常")
 
-	klog.Info("开始检查k8s版本...")
+	klog.Info("Validate K8s Version")
 	if err = validator.ValidateKubeVersion(); err != nil {
 		return err
 	}
-	klog.Info("k8s版本无异常")
 
 	// 生成kubeVarsPool渲染池
+	klog.Info("Generate kubeVarsPool")
 	validator.GenVarsPool()
 
 	return nil
 }
 
 func k8sInstall(cmd *cobra.Command, args []string) error {
-	globalTimeout := 5 * time.Minute
-	cmdCaller, err := internal.NewSshCmdCaller(masterList[0])
+	headerCaller, err := internal.NewSshCmdCaller(masterList[0])
 	if err != nil {
 		return err
 	}
 
-	// header节点部署
-	klog.Info("开始部署header节点...")
+	// 安装header节点
+	klog.Info("Startup header node")
 	var hasVip bool
 	if len(vip) != 0 {
 		hasVip = true
 	}
 	headerInstaller := internal.NewNodeInstaller(
-		internal.NewInitNodeStep(true, hasVip, masterList[0], globalTimeout),
-		internal.NewInitKubeadmStep(masterList[0], globalTimeout),
-		internal.NewInstallAddonsStep(masterList[0], globalTimeout),
+		internal.NewInitNodeStep(true, hasVip, masterList[0]),
+		internal.NewInitKubeadmStep(masterList[0]),
+		internal.NewInstallAddonsStep(masterList[0]),
 	)
 	if err = headerInstaller.Run(); err != nil {
 		return err
 	}
-	klog.Info("header节点部署完成...")
+	klog.Info("Header node startup completed")
 	if len(masterList) == 1 && len(workerList) == 0 {
-		if err = cmdCaller.UnTaintNode(); err != nil {
+		if err = headerCaller.UnTaintNode(); err != nil {
 			return err
 		}
-		klog.Info("单节点k8s集群部署完成...")
+		klog.Info("single-node-k8s deployment completed")
 		return nil
 	}
 
 	// 生成join集群命令
-	klog.Info("开始生成加入k8s集群命令...")
 	var masterJoinCmd, workerJoinCmd string
 
 	if len(masterList) > 1 {
-		masterJoinCmd, err = cmdCaller.GenJoinCmd("master")
+		masterJoinCmd, err = headerCaller.GenJoinCmd("master")
 		if err != nil {
 			return err
 		}
-		klog.Info("生成master节点加入集群命令成功")
-		fmt.Println("----------join master command----------")
-		fmt.Println()
-		fmt.Println(masterJoinCmd)
-		fmt.Println()
-		fmt.Println("---------------------------------------")
 	}
 
 	if len(workerList) > 0 {
-		workerJoinCmd, err = cmdCaller.GenJoinCmd("worker")
+		workerJoinCmd, err = headerCaller.GenJoinCmd("worker")
 		if err != nil {
 			return err
 		}
-		klog.Info("生成worker节点加入集群命令成功")
-		fmt.Println("----------join worker command----------")
-		fmt.Println()
-		fmt.Println(workerJoinCmd)
-		fmt.Println()
-		fmt.Println("---------------------------------------")
 	}
 
 	// 非header节点部署
-	klog.Info("开始执行其他节点加入集群操作...")
+	klog.Info("Nodes start join header")
 	var runFuncList = make([]func() error, 0)
 
 	if len(masterList) > 1 {
 		for _, ip := range masterList[1:] {
 			nodeInstaller := internal.NewNodeInstaller(
-				internal.NewInitNodeStep(false, hasVip, ip, globalTimeout),
-				internal.NewJoinHeaderStep(ip, globalTimeout, masterJoinCmd+internal.SshSetKubectlCmd),
+				internal.NewInitNodeStep(false, hasVip, ip),
+				internal.NewJoinHeaderStep(ip, masterJoinCmd+internal.SshSetKubectlCmd),
 			)
 			runFuncList = append(runFuncList, nodeInstaller.Run)
 		}
@@ -135,8 +117,8 @@ func k8sInstall(cmd *cobra.Command, args []string) error {
 	if len(workerList) > 0 {
 		for _, ip := range workerList {
 			nodeInstaller := internal.NewNodeInstaller(
-				internal.NewInitNodeStep(false, hasVip, ip, globalTimeout),
-				internal.NewJoinHeaderStep(ip, globalTimeout, workerJoinCmd+internal.SshSetKubectlCmd),
+				internal.NewInitNodeStep(false, hasVip, ip),
+				internal.NewJoinHeaderStep(ip, workerJoinCmd+internal.SshSetKubectlCmd),
 			)
 			runFuncList = append(runFuncList, nodeInstaller.Run)
 		}
@@ -146,11 +128,11 @@ func k8sInstall(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if err = cmdCaller.UnTaintNode(); err != nil {
+	if err = headerCaller.UnTaintNode(); err != nil {
 		return err
 	}
 
-	klog.Info("k8s集群部署完成...")
+	klog.Info("k8s cluster deployment completed")
 	return nil
 }
 

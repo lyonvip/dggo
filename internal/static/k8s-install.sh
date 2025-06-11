@@ -1,6 +1,18 @@
 #!/bin/bash
 
+echo_log(){
+  IP=$1
+  Step=$2
+  Msg=$3
+  echo "[node_ip=${IP}][${Step}] ${Msg}"
+}
+
 init_apt_source(){
+  Node=$1
+  Step="init_apt_source"
+
+  # 配置系统apt源
+  echo_log "${Node}" "${Step}" "Config OS sources.list via https://mirrors.tuna.tsinghua.edu.cn/ubuntu/"
   rm -rf /etc/apt/sources.list /etc/apt/sources.list.d/kubernetes.list /etc/apt/keyrings/kubernetes-apt-keyring.gpg
   cat > /etc/apt/sources.list << EOF
 deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ jammy main restricted universe multiverse
@@ -14,15 +26,25 @@ deb http://security.ubuntu.com/ubuntu/ jammy-security main restricted universe m
 # deb-src http://security.ubuntu.com/ubuntu/ jammy-security main restricted universe multiverse
 EOF
 
+  # 配置k8s apt源
+  echo_log "${Node}" "${Step}" "Config k8s sources.list via https://pkgs.k8s.io/core:/stable:/"
   curl -fsSL https://pkgs.k8s.io/core:/stable:/v{{ .KubeMainVersion }}/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
   cat > /etc/apt/sources.list.d/kubernetes.list << EOF
 deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://mirrors.tuna.tsinghua.edu.cn/kubernetes/core:/stable:/v{{ .KubeMainVersion }}/deb/ /
 EOF
 
+  # 安装apt-transport-https
+  echo_log "${Node}" "${Step}" "Install apt-transport-https via apt"
   /usr/bin/apt update && /usr/bin/apt install -y apt-transport-https
 }
 
 install_containerd(){
+  Node=$1
+  Step="install_containerd"
+
+  # 开启系统模块
+  echo_log "${Node}" "${Step}" "Config OS modules-load"
+
   rm -rf /etc/modules-load.d/containerd.conf
   cat <<EOF > /etc/modules-load.d/containerd.conf
 overlay
@@ -30,6 +52,9 @@ br_netfilter
 EOF
   modprobe overlay
   modprobe br_netfilter
+
+  # 配置内核参数
+  echo_log "${Node}" "${Step}" "Config kernel runtime parameters"
 
   rm -rf /etc/sysctl.d/99-kubernetes-cri.conf
   cat <<EOF > /etc/sysctl.d/99-kubernetes-cri.conf
@@ -39,9 +64,17 @@ net.bridge.bridge-nf-call-ip6tables = 1
 EOF
   sysctl --system
 
+  # 下载二进制文件
+  echo_log "${Node}" "${Step}" "Download containerd binary via nerdctl-full package"
+
   wget -O /usr/local/src/nerdctl-full-{{ .NerdctlVersion }}-linux-amd64.tar.gz \
     https://files.m.daocloud.io/github.com/containerd/nerdctl/releases/download/v{{ .NerdctlVersion }}/nerdctl-full-{{ .NerdctlVersion }}-linux-amd64.tar.gz
   tar Cxzvvf /usr/local /usr/local/src/nerdctl-full-{{ .NerdctlVersion }}-linux-amd64.tar.gz
+
+
+  # 配置config.toml
+  echo_log "${Node}" "${Step}" "Config containerd parameters via config.toml"
+
   mkdir -p /etc/containerd
   rm -rf /etc/containerd/config.toml
   cat <<EOF > /etc/containerd/config.toml
@@ -337,6 +370,9 @@ version = 2
   gid = 0
   uid = 0
 EOF
+
+  # 启动containerd
+  echo_log "${Node}" "${Step}" "Start containerd daemon"
   systemctl enable --now containerd
   if ! systemctl status containerd &>/dev/null; then
     exit 1
@@ -346,13 +382,25 @@ EOF
 }
 
 install_kube(){
+  Node=$1
+  Step="install_kube"
+
+  # 安装kubelet/kubeadm/kubectl
+  echo_log "${Node}" "${Step}" "Install kubelet/kubeadm/kubectl via apt"
   KUBERNETES_VERSION=$(apt-cache madison kubeadm | grep '{{ .KubeVersion }}' | awk -F '|' '{print $2}' | tr -d ' ')
   apt install -y kubelet=${KUBERNETES_VERSION} kubeadm=${KUBERNETES_VERSION} kubectl=${KUBERNETES_VERSION}
   apt-mark hold kubelet kubeadm kubectl
+
+  echo_log "${Node}" "${Step}" "Start kubelet"
   systemctl enable --now kubelet
 }
 
 install_kubevip(){
+  Node=$1
+  Step="install_kubevip"
+
+  # 配置kubevip
+  echo_log "${Node}" "${Step}" "Config kubevip static manifest"
   mkdir -p /etc/kubernetes/manifests
   rm -rf /etc/kubernetes/manifests/kube-vip.yaml
   NicStr=$(echo "{{ .KubeVIP }}" | sed 's/\([0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.\)[0-9]\{1,3\}/\1/')
@@ -435,7 +483,13 @@ EOF
 }
 
 init_kubeadm(){
-  kubeadm init --upload-certs --config /usr/local/src/kubeadm.yaml > /usr/local/src/kubeadm.log
+  Node=$1
+  Step="init_kubeadm"
+
+  # 初始化k8s集群
+  echo_log "${Node}" "${Step}" "Init k8s via kubeadm"
+
+  kubeadm init --upload-certs --config /usr/local/src/kubeadm.yaml
   if [ "$?" -ne 0 ]; then
     exit 1
   else
@@ -447,10 +501,23 @@ init_kubeadm(){
 }
 
 install_addons(){
+  Node=$1
+  Step="install_addons"
+
+  # 安装calico插件
+  echo_log "${Node}" "${Step}" "Install calico"
+
   kubectl apply -f /usr/local/src/calico.yaml
   [[ "$?" != "0" ]] && exit 1
+
+
+  # 安装calico插件
+  echo_log "${Node}" "${Step}" "Install metrics-server"
   kubectl apply -f /usr/local/src/components.yaml
   [[ "$?" != "0" ]] && exit 1
+
+  # 等待calico就绪
+  echo_log "${Node}" "${Step}" "Wait calico ready..."
   for ((i=1; i<=60; i++)); do
     sleep 2
     num=$(kubectl -n kube-system get po | grep 'calico' | grep 'Running' | grep '1/1' | wc -l)
@@ -460,10 +527,17 @@ install_addons(){
 }
 
 init_node(){
+  Node=$1
+  Step="init_node"
+
+  # 关闭防火墙
+  echo_log "${Node}" "${Step}" "Disable firewall"
   systemctl disable firewalld --now &>/dev/null
   # 配置主机名
+  echo_log "${Node}" "${Step}" "Config hostname"
   hostnamectl set-hostname {{ .LocalHostname }}
   # 配置本地域名解析
+  echo_log "${Node}" "${Step}" "Config local dns"
   cat >> /etc/hosts << EOF
 {{ if .KubeVIP }}
 {{ .KubeVIP }} lb.k8s.local
@@ -474,20 +548,24 @@ init_node(){
 EOF
 
   # 关闭swap
+  echo_log "${Node}" "${Step}" "Disable swap"
   sed -ri '/\sswap\s/s/^#?/#/' /etc/fstab
   mount -a
   swapoff -a
 
   # 安装依赖包
+  echo_log "${Node}" "${Step}" "Install ipset/ipvsadm/chrony via apt"
   apt install -y ipset ipvsadm chrony
 
   # 配置时间同步
+  echo_log "${Node}" "${Step}" "Config local timedate"
   timedatectl set-timezone Asia/Shanghai
   sed -i '/pool [0-2].ubuntu.pool.ntp.org/d' /etc/chrony/chrony.conf
   sed -i '/pool ntp.ubuntu.com/s/ubuntu/aliyun/' /etc/chrony/chrony.conf
   systemctl restart chronyd
 
   # 加载内核
+  echo_log "${Node}" "${Step}" "Load kernel modules"
   rm -rf /etc/modules-load.d/ipvs.conf
   cat <<EOF > /etc/modules-load.d/ipvs.conf
 ip_vs
@@ -522,6 +600,11 @@ gen_worker_join_cmd(){
 }
 
 untaint_master_nodes(){
+  Node=$1
+  Step="init_node"
+
+  # 删除master污点
+  echo_log "${Node}" "${Step}" "Untaint master nodes"
   node_array=($(kubectl get no | grep 'control-plane' | awk '{print $1}'))
   if [ "${#node_array[@]}" -lt "1" ]; then
     exit 1
@@ -534,35 +617,36 @@ untaint_master_nodes(){
   done
 }
 
+node_ip=$2
 case $1 in
     "apt")
-        init_apt_source
+        init_apt_source "${node_ip}"
         ;;
     "init")
-        init_node
+        init_node "${node_ip}"
         ;;
     "containerd")
-        install_containerd
+        install_containerd "${node_ip}"
         ;;
     "kube")
-        install_kube
+        install_kube "${node_ip}"
         ;;
     "kubevip")
-        install_kubevip
+        install_kubevip "${node_ip}"
         ;;
     "kubeadm")
-        init_kubeadm
+        init_kubeadm "${node_ip}"
         ;;
     "addons")
-        install_addons
+        install_addons "${node_ip}"
+        ;;
+    "untaint_node")
+        untaint_master_nodes "${node_ip}"
         ;;
     "gen_master_cmd")
         gen_master_join_cmd
         ;;
     "gen_worker_cmd")
         gen_worker_join_cmd
-        ;;
-    "untaint_node")
-        untaint_master_nodes
         ;;
 esac
