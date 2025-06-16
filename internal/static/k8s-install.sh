@@ -392,7 +392,7 @@ install_kube(){
   # 安装kubelet/kubeadm/kubectl
   echo_log "${Node}" "${Step}" "Install kubelet/kubeadm/kubectl via apt"
   KUBERNETES_VERSION=$(apt-cache madison kubeadm | grep '{{ .KubeVersion }}' | awk -F '|' '{print $2}' | tr -d ' ')
-  apt install -y kubelet=${KUBERNETES_VERSION} kubeadm=${KUBERNETES_VERSION} kubectl=${KUBERNETES_VERSION}
+  apt-get install -y kubelet=${KUBERNETES_VERSION} kubeadm=${KUBERNETES_VERSION} kubectl=${KUBERNETES_VERSION}
   apt-mark hold kubelet kubeadm kubectl
 
   echo_log "${Node}" "${Step}" "Start kubelet"
@@ -526,8 +526,9 @@ install_addons(){
 
   # 等待calico就绪
   echo_log "${Node}" "${Step}" "Wait calico ready..."
-  for ((i=1; i<=100; i++)); do
-    sleep 2
+  for ((i=1; i<=50; i++)); do
+    sleep 3
+    kubectl -n kube-system get po | grep 'calico'
     num=$(kubectl -n kube-system get po | grep 'calico' | grep 'Running' | grep '1/1' | wc -l)
     [ "$num" -eq 2 ] && exit 0
   done
@@ -563,7 +564,7 @@ EOF
 
   # 安装依赖包
   echo_log "${Node}" "${Step}" "Install apt-transport-https/ipset/ipvsadm/chrony via apt"
-  apt install -y apt-transport-https ipset ipvsadm chrony
+  apt-get install -y apt-transport-https ipset ipvsadm chrony
 
   # 配置时间同步
   echo_log "${Node}" "${Step}" "Config local timedate"

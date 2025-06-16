@@ -87,12 +87,16 @@ func k8sInstall(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Todo: 如果kube版本大于等于1.29，获取/etc/kubernetes/super-admin.conf内容
-	headerCaller.GenKubeConfig()
+	// 如果kube版本大于等于1.29，获取/etc/kubernetes/super-admin.conf内容
+	var superAdminConf []byte
+	if len(vip) != 0 && internal.GetVarsPool().KubeReleaseVersion >= 29 {
+		if superAdminConf, err = headerCaller.GenKubeConfig(); err != nil {
+			return err
+		}
+	}
 
 	// 生成join集群命令
 	var masterJoinCmd, workerJoinCmd string
-
 	if len(masterList) > 1 {
 		masterJoinCmd, err = headerCaller.GenJoinCmd("master")
 		if err != nil {
@@ -115,9 +119,15 @@ func k8sInstall(cmd *cobra.Command, args []string) error {
 
 	if len(masterList) > 1 {
 		for _, ip := range masterList[1:] {
-			if internal.GetVarsPool().KubeReleaseVersion >= 29 {
-				// Todo: 生成super-admin.conf文件
+			if len(vip) != 0 && internal.GetVarsPool().KubeReleaseVersion >= 29 {
+				caller, err := internal.NewSshCmdCaller(ip)
+				if err != nil {
+					return err
+				}
 
+				if err = caller.RemoteWriteFile(superAdminConf); err != nil {
+					return err
+				}
 			}
 
 			nodeInstaller := internal.NewNodeInstaller(
@@ -130,14 +140,9 @@ func k8sInstall(cmd *cobra.Command, args []string) error {
 
 	if len(workerList) > 0 {
 		for _, ip := range workerList {
-			if internal.GetVarsPool().KubeReleaseVersion >= 29 {
-				// Todo: 生成super-admin.conf文件
-
-			}
-
 			nodeInstaller := internal.NewNodeInstaller(
 				internal.NewInitNodeStep(false, hasVip, ip),
-				internal.NewJoinHeaderStep(ip, workerJoinCmd+internal.SshSetKubectlCmd),
+				internal.NewJoinHeaderStep(ip, workerJoinCmd),
 			)
 			runFuncList = append(runFuncList, nodeInstaller.Run)
 		}

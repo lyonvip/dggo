@@ -179,6 +179,7 @@ func (n *NodeInstaller) Run() error {
 type SshCmdCaller struct {
 	sshClient *goph.Client
 	wg        *sync.WaitGroup
+	ip        string
 }
 
 func NewSshCmdCaller(ip string) (*SshCmdCaller, error) {
@@ -187,7 +188,7 @@ func NewSshCmdCaller(ip string) (*SshCmdCaller, error) {
 		return nil, fmt.Errorf("无法获取%s的ssh连接", ip)
 	}
 	sshClient := client.(*goph.Client)
-	return &SshCmdCaller{sshClient, new(sync.WaitGroup)}, nil
+	return &SshCmdCaller{sshClient, new(sync.WaitGroup), ip}, nil
 }
 
 func (g *SshCmdCaller) GenJoinCmd(role string) (string, error) {
@@ -208,14 +209,19 @@ func (g *SshCmdCaller) GenJoinCmd(role string) (string, error) {
 	return string(res), nil
 }
 
-func (g *SshCmdCaller) GenKubeConfig() error {
-	// Todo: 生成super-admin.conf逻辑
-	return nil
+func (g *SshCmdCaller) GenKubeConfig() ([]byte, error) {
+	timeCtx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
+	defer cancel()
+	res, err := g.sshClient.RunContext(timeCtx, SshCatSuperAdmin)
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 func (g *SshCmdCaller) UnTaintNode() error {
 	shellScript := filepath.Join(RemoteParseDir, FilenameMap["script"])
-	execCmd := fmt.Sprintf("bash %s untaint_node", shellScript)
+	execCmd := fmt.Sprintf("bash %s untaint_node %s", shellScript, g.ip)
 	if err := g.RemoteShell(execCmd); err != nil {
 		return err
 	}
@@ -256,6 +262,30 @@ func (g *SshCmdCaller) RemoteShell(cmd string) error {
 	g.wg.Wait()
 
 	if err = session.Wait(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (g *SshCmdCaller) RemoteWriteFile(content []byte) error {
+	if err := g.RemoteShell(GenKubeDir); err != nil {
+		return err
+	}
+
+	sftpClient, err := g.sshClient.NewSftp()
+	if err != nil {
+		return err
+	}
+	defer sftpClient.Close()
+
+	fi, err := sftpClient.OpenFile(SuperAdminConf, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
+	if err != nil {
+		return err
+	}
+	defer fi.Close()
+
+	if _, err = fi.Write(content); err != nil {
 		return err
 	}
 
