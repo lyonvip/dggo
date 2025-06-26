@@ -392,7 +392,7 @@ install_kube(){
   # 安装kubelet/kubeadm/kubectl
   echo_log "${Node}" "${Step}" "Install kubelet/kubeadm/kubectl via apt"
   KUBERNETES_VERSION=$(apt-cache madison kubeadm | grep '{{ .KubeVersion }}' | awk -F '|' '{print $2}' | tr -d ' ')
-  apt-get install -y kubelet=${KUBERNETES_VERSION} kubeadm=${KUBERNETES_VERSION} kubectl=${KUBERNETES_VERSION}
+  apt install -y kubelet=${KUBERNETES_VERSION} kubeadm=${KUBERNETES_VERSION} kubectl=${KUBERNETES_VERSION}
   apt-mark hold kubelet kubeadm kubectl
 
   echo_log "${Node}" "${Step}" "Start kubelet"
@@ -564,7 +564,7 @@ EOF
 
   # 安装依赖包
   echo_log "${Node}" "${Step}" "Install apt-transport-https/ipset/ipvsadm/chrony via apt"
-  apt-get install -y apt-transport-https ipset ipvsadm chrony
+  apt install -y apt-transport-https ipset ipvsadm chrony
 
   # 配置时间同步
   echo_log "${Node}" "${Step}" "Config local timedate"
